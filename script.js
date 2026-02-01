@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, update, push } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getDatabase, ref, set, onValue, update, push, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyAnX310YufEPE5ODH0RHusbtaw9wNGGhdE",
@@ -18,42 +18,49 @@ const db = getDatabase(app);
 const urlParams = new URLSearchParams(window.location.search);
 const isAdmin = urlParams.get('admin') === 'true';
 
-// System State Structure
 const DEFAULT_STATE = {
-    globalBreak: 210, // Minutes
+    globalBreak: 210,
     timers: {
-        bath: { name: 'Bath', current: 30, limit: 30, restarts: 0, maxRestarts: Infinity, active: false },
+        bath: { name: 'Bath', current: 30, limit: 30, restarts: 0, maxRestarts: 999, active: false },
         food: { name: 'Food', current: 15, limit: 15, restarts: 0, maxRestarts: 3, active: false },
         washroom: { name: 'Washroom', current: 15, limit: 15, restarts: 0, maxRestarts: 2, active: false },
         sleep: { name: 'Sleep', current: 420, limit: 420, restarts: 0, maxRestarts: 1, active: false },
-        studyBuffer: { name: 'Study Buffer', current: 20, limit: 20, restarts: 0, maxRestarts: Infinity, active: false }
-    },
-    coupons: {},
-    logs: []
+        studyBuffer: { name: 'Study Buffer', current: 20, limit: 20, restarts: 0, maxRestarts: 999, active: false }
+    }
 };
 
-// Initialize UI
+// --- INITIALIZATION ---
+// This checks if DB is empty and populates it so you don't get "undefined"
+get(ref(db, 'system/')).then((snapshot) => {
+    if (!snapshot.exists()) {
+        set(ref(db, 'system/'), DEFAULT_STATE);
+    }
+});
+
 if (isAdmin) {
     document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('hidden'));
     document.getElementById('view-title').innerText = "Admin Management";
 }
 
-// 1. CORE SYNC LOGIC
+// --- CORE SYNC ---
 onValue(ref(db, 'system/'), (snapshot) => {
-    const data = snapshot.val() || DEFAULT_STATE;
-    renderTimers(data);
-    renderCoupons(data.coupons);
-    renderLogs(data.logs);
+    const data = snapshot.val();
+    if (!data) return;
+
+    renderTimers(data.timers);
+    renderCoupons(data.coupons || {});
+    renderLogs(data.logs || {});
     updateGlobalTimer(data.globalBreak);
 });
 
-// 2. RENDER FUNCTIONS
-function renderTimers(data) {
+// --- RENDER FUNCTIONS ---
+function renderTimers(timers) {
     const container = document.getElementById('dashboard');
+    if (!container) return;
     container.innerHTML = '';
 
-    Object.keys(data.timers).forEach(key => {
-        const t = data.timers[key];
+    Object.keys(timers).forEach(key => {
+        const t = timers[key];
         const card = document.createElement('div');
         card.className = 'glass-card timer-block';
         card.innerHTML = `
@@ -63,79 +70,94 @@ function renderTimers(data) {
                 <small>Limit: ${t.limit}m</small>
             </div>
             <div class="controls ${isAdmin ? '' : 'hidden'}">
-                <button onclick="toggleTimer('${key}', ${t.active})">${t.active ? 'STOP' : 'START'}</button>
-                <input type="number" id="add-${key}" placeholder="Add Minutes">
-                <button onclick="adjustTime('${key}')">Manual Update</button>
+                <button id="btn-${key}">${t.active ? 'STOP' : 'START'}</button>
+                <input type="number" id="input-${key}" placeholder="Min to add">
+                <button id="update-${key}" class="secondary">Manual Update</button>
             </div>
             <div class="stats">
-                Restarts: ${t.restarts}/${t.maxRestarts === Infinity ? '∞' : t.maxRestarts}
+                Restarts: ${t.restarts} / ${t.maxRestarts > 100 ? '∞' : t.maxRestarts}
             </div>
         `;
         container.appendChild(card);
+
+        // Attach events manually to ensure 'this' context and scoping works
+        if (isAdmin) {
+            document.getElementById(`btn-${key}`).onclick = () => toggleTimer(key, t.active);
+            document.getElementById(`update-${key}`).onclick = () => adjustTime(key, t.current);
+        }
     });
 }
 
-// 3. TIMER ACTIONS (ADMIN ONLY)
+// --- ACTIONS ---
 window.toggleTimer = (id, currentState) => {
     update(ref(db, `system/timers/${id}`), { active: !currentState });
-    addLog(`Timer ${id} toggled to ${!currentState}`);
 };
 
-window.adjustTime = (id) => {
-    const val = parseInt(document.getElementById(`add-${id}`).value);
-    if (isNaN(val)) return;
-    
-    // Logic: Fetch current, add val, check overflow
-    const timerRef = ref(db, `system/timers/${id}`);
-    // This would typically involve a transaction for safety
-    // For brevity in this setup, we use standard update logic
+window.adjustTime = (id, currentVal) => {
+    const input = document.getElementById(`input-${id}`);
+    const addedMins = parseInt(input.value);
+    if (isNaN(addedMins)) return;
+
+    update(ref(db, `system/timers/${id}`), { 
+        current: currentVal + addedMins 
+    });
+    input.value = '';
 };
 
-// 4. GLOBAL LOGIC
+// --- TICKER LOGIC (1 Minute) ---
+// Only runs if you are on the admin page to prevent multiple clients double-ticking
+if (isAdmin) {
+    setInterval(async () => {
+        const snapshot = await get(ref(db, 'system/'));
+        const data = snapshot.val();
+        if (!data) return;
+
+        let globalDeduction = 0;
+        const updates = {};
+
+        Object.keys(data.timers).forEach(key => {
+            const t = data.timers[key];
+            if (t.active) {
+                let newTime = t.current - 1;
+                // Overflow logic: If timer hits 0, start eating from Global Break Pool
+                if (newTime < 0) {
+                    globalDeduction += 1;
+                }
+                updates[`system/timers/${key}/current`] = newTime;
+            }
+        });
+
+        if (globalDeduction > 0) {
+            updates[`system/globalBreak`] = data.globalBreak - globalDeduction;
+        }
+
+        if (Object.keys(updates).length > 0) {
+            update(ref(db), updates);
+        }
+    }, 60000); 
+}
+
+// --- UTILS ---
 function formatTime(minutes) {
-    const h = Math.floor(Math.abs(minutes) / 60);
-    const m = Math.abs(minutes) % 60;
+    if (minutes === undefined || isNaN(minutes)) return "00:00";
+    const absMin = Math.abs(minutes);
+    const h = Math.floor(absMin / 60);
+    const m = absMin % 60;
     const sign = minutes < 0 ? "-" : "";
     return `${sign}${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
 function updateGlobalTimer(val) {
     const el = document.getElementById('global-timer');
-    el.innerText = formatTime(val);
-    if (val < 0) el.style.color = "#ff4d4d";
+    if (el) el.innerText = formatTime(val);
 }
 
-// 5. TICKER LOGIC (Runs every minute)
-// Only one client should ideally tick to avoid race conditions, 
-// but for a simple "discipline" app, we run local tick and sync.
-setInterval(() => {
-    if (!isAdmin) return; // Only admin page drives the clock to prevent multi-user speedup
-    // Logic: If timer active, decrement current. If current < 0, decrement globalBreak.
-}, 60000);
+// Global UI placeholders for coupons/logs
+function renderCoupons(c) { /* simplified for now */ }
+function renderLogs(l) { /* simplified for now */ }
 
-// 6. LOGGING SYSTEM
-function addLog(msg) {
-    const logRef = ref(db, 'system/logs');
-    push(logRef, {
-        msg,
-        timestamp: new Date().toLocaleTimeString()
-    });
-}
-
-function renderLogs(logs) {
-    const container = document.getElementById('logs-container');
-    container.innerHTML = '';
-    if (!logs) return;
-    Object.values(logs).reverse().slice(0, 10).forEach(log => {
-        const p = document.createElement('p');
-        p.className = 'log-entry';
-        p.innerHTML = `<small>${log.timestamp}</small> - ${log.msg}`;
-        container.appendChild(p);
-    });
-}
-
-// Restart Day Event
 document.getElementById('restart-day').onclick = () => {
-    set(ref(db, 'system/'), DEFAULT_STATE);
-    addLog("System Reset - New Day Started");
+    if(confirm("Reset everything for a new day?")) {
+        set(ref(db, 'system/'), DEFAULT_STATE);
+    }
 };
