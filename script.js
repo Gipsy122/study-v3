@@ -21,7 +21,7 @@ const isAdmin = urlParams.get('admin') === 'true';
 const DEFAULT_STATE = {
     globalBreak: 210,
     timers: {
-        bath: { name: 'Bath', current: 30, limit: 30, restarts: 0, maxRestarts: 999, active: false },
+        bath: { name: 'Bath', current: 0, limit: 30, restarts: 0, maxRestarts: 1, active: false },
         food: { name: 'Food', current: 15, limit: 15, restarts: 0, maxRestarts: 3, active: false },
         washroom: { name: 'Washroom', current: 15, limit: 15, restarts: 0, maxRestarts: 2, active: false },
         sleep: { name: 'Sleep', current: 420, limit: 420, restarts: 0, maxRestarts: 1, active: false },
