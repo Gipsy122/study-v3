@@ -1,1 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Study Discipline System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-mode">
+    <div id="app">
+        <header class="glass-header">
+            <h1 id="view-title">User Dashboard</h1>
+            <div class="global-timer-container">
+                <span class="label">Daily Break Pool</span>
+                <div id="global-timer" class="timer-display">210:00</div>
+            </div>
+            <button id="restart-day" class="admin-only hidden">Restart Day</button>
+        </header>
 
+        <main id="dashboard" class="grid-layout">
+            </main>
+
+        <section id="coupon-section" class="glass-card">
+            <h2>Coupons & Rewards</h2>
+            <div id="coupon-controls" class="admin-only hidden">
+                <input type="text" id="coupon-title" placeholder="Title">
+                <input type="number" id="coupon-value" placeholder="Minutes (+/-)">
+                <button id="issue-coupon">Issue Coupon</button>
+            </div>
+            <div id="coupon-list" class="flex-row"></div>
+        </section>
+
+        <section id="logs-section" class="glass-card">
+            <h2>Activity Logs</h2>
+            <div id="logs-container"></div>
+        </section>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
