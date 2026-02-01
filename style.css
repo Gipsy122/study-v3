@@ -1,1 +1,102 @@
+:root {
+    --bg-color: #0a0a0c;
+    --glass: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --accent: #ff4d94; /* Inspired by your pink/rose theme */
+    --text: #e0e0e0;
+    --glow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+body {
+    background: var(--bg-color);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px;
+    background-image: radial-gradient(circle at top right, #1a1015, transparent), radial-gradient(circle at bottom left, #0d1117, transparent);
+}
+
+.glass-header {
+    background: var(--glass);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 20px;
+    margin-bottom: 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: var(--glow);
+}
+
+.grid-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.glass-card {
+    background: var(--glass);
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--glass-border);
+    border-radius: 28px;
+    padding: 20px;
+    transition: transform 0.3s ease;
+    box-shadow: var(--glow);
+}
+
+.timer-block {
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.circle-timer {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    border: 4px solid var(--glass-border);
+    margin: 15px auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    background: radial-gradient(circle, rgba(255,77,148,0.05) 0%, transparent 70%);
+}
+
+.timer-val { font-size: 1.8rem; font-weight: bold; }
+
+.controls { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+
+button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+button:hover { opacity: 1; transform: scale(1.02); }
+
+input {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 8px;
+    color: white;
+}
+
+.hidden { display: none !important; }
+
+/* Mobile Optimization */
+@media (max-width: 600px) {
+    .grid-layout { grid-template-columns: 1fr; }
+    .glass-header { flex-direction: column; text-align: center; gap: 15px; }
+}
 
