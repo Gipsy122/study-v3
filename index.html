@@ -5,37 +5,186 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Study Discipline System</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="dark-mode">
-    <div id="app">
-        <header class="glass-header">
-            <h1 id="view-title">User Dashboard</h1>
-            <div class="global-timer-container">
-                <span class="label">Daily Break Pool</span>
-                <div id="global-timer" class="timer-display">210:00</div>
+<body>
+    <div class="container">
+        <!-- Admin/User mode indicator -->
+        <div class="mode-indicator" id="modeIndicator">
+            <i class="fas fa-user-shield"></i> <span id="modeText">Loading...</span>
+        </div>
+
+        <!-- Main Header with Global Timer -->
+        <header class="main-header">
+            <div class="header-content">
+                <h1 class="app-title">
+                    <i class="fas fa-brain"></i> Study Discipline System
+                </h1>
+                <div class="global-timer-container">
+                    <div class="global-timer-label">
+                        <i class="fas fa-clock"></i> Daily Break Balance
+                    </div>
+                    <div class="global-timer" id="globalTimer">
+                        <div class="timer-circle">
+                            <svg class="timer-svg" viewBox="0 0 100 100">
+                                <circle class="timer-base" cx="50" cy="50" r="45"></circle>
+                                <circle class="timer-progress" cx="50" cy="50" r="45"></circle>
+                            </svg>
+                            <div class="timer-text">
+                                <span class="timer-minutes" id="globalMinutes">210</span>
+                                <span class="timer-label">minutes</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="timer-info">
+                        <div class="remaining-text" id="globalRemaining">210 of 210 minutes remaining</div>
+                        <div class="progress-percent" id="globalPercent">100%</div>
+                    </div>
+                </div>
             </div>
-            <button id="restart-day" class="admin-only hidden">Restart Day</button>
         </header>
 
-        <main id="dashboard" class="grid-layout">
-            </main>
-
-        <section id="coupon-section" class="glass-card">
-            <h2>Coupons & Rewards</h2>
-            <div id="coupon-controls" class="admin-only hidden">
-                <input type="text" id="coupon-title" placeholder="Title">
-                <input type="number" id="coupon-value" placeholder="Minutes (+/-)">
-                <button id="issue-coupon">Issue Coupon</button>
+        <!-- Admin Controls (Visible only in Admin mode) -->
+        <div class="admin-controls" id="adminControls">
+            <div class="control-group">
+                <h3><i class="fas fa-cog"></i> System Controls</h3>
+                <div class="button-group">
+                    <button class="btn btn-primary" id="restartDayBtn">
+                        <i class="fas fa-redo"></i> Restart Day
+                    </button>
+                    <button class="btn btn-secondary" id="addCouponBtn">
+                        <i class="fas fa-ticket-alt"></i> Create Coupon
+                    </button>
+                    <button class="btn btn-secondary" id="viewLogsBtn">
+                        <i class="fas fa-history"></i> View Logs
+                    </button>
+                </div>
             </div>
-            <div id="coupon-list" class="flex-row"></div>
+        </div>
+
+        <!-- Timer Grid -->
+        <main class="timer-grid" id="timerGrid">
+            <!-- Timers will be dynamically generated here -->
+        </main>
+
+        <!-- Coupons Section -->
+        <section class="coupons-section" id="couponsSection">
+            <h2><i class="fas fa-tags"></i> Available Coupons</h2>
+            <div class="coupons-grid" id="couponsGrid">
+                <!-- Coupons will be dynamically generated here -->
+            </div>
         </section>
 
-        <section id="logs-section" class="glass-card">
-            <h2>Activity Logs</h2>
-            <div id="logs-container"></div>
-        </section>
+        <!-- Create Coupon Modal (Admin only) -->
+        <div class="modal" id="couponModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-plus-circle"></i> Create New Coupon</h3>
+                    <button class="close-modal" id="closeCouponModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="couponTitle"><i class="fas fa-heading"></i> Title</label>
+                        <input type="text" id="couponTitle" placeholder="e.g., Extra Study Time">
+                    </div>
+                    <div class="form-group">
+                        <label for="couponDesc"><i class="fas fa-align-left"></i> Description</label>
+                        <textarea id="couponDesc" placeholder="Describe what this coupon does..."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="couponEffect"><i class="fas fa-bolt"></i> Effect (minutes)</label>
+                            <input type="number" id="couponEffect" placeholder="e.g., 15 or -10">
+                        </div>
+                        <div class="form-group">
+                            <label for="couponExpiry"><i class="fas fa-calendar-times"></i> Expiry (hours, optional)</label>
+                            <input type="number" id="couponExpiry" placeholder="Leave empty for no expiry">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="couponTarget"><i class="fas fa-bullseye"></i> Apply to Timer</label>
+                        <select id="couponTarget">
+                            <option value="global">Global Break Timer</option>
+                            <option value="bath">Bath</option>
+                            <option value="food">Food</option>
+                            <option value="washroom">Washroom</option>
+                            <option value="sleep">Sleep</option>
+                            <option value="studyBuffer">Study Buffer</option>
+                            <option value="weeklyFun">Weekly Fun</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="cancelCouponBtn">Cancel</button>
+                    <button class="btn btn-primary" id="saveCouponBtn">Create Coupon</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Modal (Admin only) -->
+        <div class="modal" id="logsModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-history"></i> System Logs</h3>
+                    <button class="close-modal" id="closeLogsModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="logs-container" id="logsContainer">
+                        <!-- Logs will be displayed here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="clearLogsBtn">Clear Logs</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timer Edit Modal (Admin only) -->
+        <div class="modal" id="editTimerModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-edit"></i> Edit Timer</h3>
+                    <button class="close-modal" id="closeEditModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="editTimeValue"><i class="fas fa-clock"></i> Add/Subtract Time (minutes)</label>
+                        <input type="number" id="editTimeValue" placeholder="e.g., 15 or -10">
+                    </div>
+                    <div class="form-group">
+                        <label for="editPriority"><i class="fas fa-sort-amount-down"></i> Priority Deduction</label>
+                        <select id="editPriority">
+                            <option value="global">Deduct from Global Timer</option>
+                            <option value="none">No Deduction (Admin Override)</option>
+                        </select>
+                    </div>
+                    <div class="current-info" id="currentTimerInfo"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="cancelEditBtn">Cancel</button>
+                    <button class="btn btn-primary" id="saveEditBtn">Apply Changes</button>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <script type="module" src="script.js"></script>
+    <!-- Firebase Configuration and Main Script -->
+    <script>
+        // Firebase configuration (exactly as provided)
+        const firebaseConfig = {
+            apiKey: "AIzaSyAnX310YufEPE5ODH0RHusbtaw9wNGGhdE",
+            authDomain: "study-system-29.firebaseapp.com",
+            databaseURL: "https://study-system-29-default-rtdb.firebaseio.com",
+            projectId: "study-system-29",
+            storageBucket: "study-system-29.firebasestorage.app",
+            messagingSenderId: "407118949554",
+            appId: "1:407118949554:web:17eeecc4c20db90da22dab"
+        };
+    </script>
+    <script src="script.js"></script>
 </body>
 </html>
