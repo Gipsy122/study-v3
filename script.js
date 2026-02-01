@@ -1,202 +1,102 @@
-// Main Application Script for Study Discipline System
-// This file contains all Firebase integration, timer logic, and UI management
-
-// ============================================================================
-// GLOBAL VARIABLES AND INITIALIZATION
-// ============================================================================
-
-// Firebase app and database reference
-let app;
-let database;
-let isAdmin = false;
-
-// Timer configuration - defines all timer properties and rules
-const timerConfig = {
-    global: {
-        name: "Global Break Timer",
-        icon: "fa-clock",
-        totalLimit: 210, // 3.5 hours in minutes
-        currentTime: 210,
-        color: "#6bc5ff"
+// INITIALIZATION & STATE
+let state = {
+    globalBank: 210 * 60, // 210 minutes in seconds
+    timers: {
+        bath: { elapsed: 0, limit: 30 * 60, running: false },
+        food: { elapsed: 0, limit: 15 * 60, running: false, restarts: 3 },
+        // Add others here...
     },
-    bath: {
-        name: "Bath",
-        icon: "fa-bath",
-        defaultLimit: 30,
-        currentTime: 0,
-        maxTime: 30,
-        restartLimit: "Unlimited",
-        restartsToday: 0,
-        color: "#4dabf7",
-        usedToday: 0
-    },
-    food: {
-        name: "Food",
-        icon: "fa-utensils",
-        defaultLimit: 15,
-        currentTime: 0,
-        maxTime: 15,
-        restartLimit: 3,
-        restartsToday: 0,
-        color: "#ff922b",
-        usedToday: 0
-    },
-    washroom: {
-        name: "Washroom",
-        icon: "fa-toilet",
-        defaultLimit: 15,
-        currentTime: 0,
-        maxTime: 15,
-        restartLimit: 2,
-        restartsToday: 0,
-        color: "#40c057",
-        usedToday: 0
-    },
-    sleep: {
-        name: "Sleep",
-        icon: "fa-bed",
-        defaultLimit: 420, // 7 hours in minutes
-        currentTime: 0,
-        maxTime: 420,
-        restartLimit: 1,
-        restartsToday: 0,
-        color: "#748ffc",
-        usedToday: 0
-    },
-    studyBuffer: {
-        name: "Study Buffer",
-        icon: "fa-book",
-        defaultLimit: 20,
-        currentTime: 0,
-        maxTime: 20,
-        restartLimit: "Unlimited",
-        restartsToday: 0,
-        color: "#da77f2",
-        usedToday: 0
-    },
-    weeklyFun: {
-        name: "Weekly Fun",
-        icon: "fa-gamepad",
-        defaultLimit: 0, // Admin defined
-        currentTime: 0,
-        maxTime: 0,
-        restartLimit: 1,
-        restartsToday: 0,
-        color: "#ff6b6b",
-        usedToday: 0,
-        weeklyLimit: 0
-    }
+    coupons: []
 };
 
-// Active timers tracking
-let activeTimers = {};
-let coupons = [];
-let systemLogs = [];
-let currentEditTimer = null;
+// Check for Admin URL Parameter
+const isAdmin = new URLSearchParams(window.location.search).get('admin') === 'true';
 
-// DOM Elements cache for performance
-const domElements = {};
+document.addEventListener('DOMContentLoaded', () => {
+    loadState();
+    initUI();
+    setInterval(updateTick, 1000); // Main logic loop
+});
 
-// ============================================================================
-// FIREBASE INITIALIZATION AND DATA SYNC
-// ============================================================================
-
-/**
- * Initializes Firebase app and sets up realtime database listeners
- * This function must be called first to establish connection with Firebase
- */
-function initializeFirebase() {
-    try {
-        // Initialize Firebase with provided configuration
-        app = firebase.initializeApp(firebaseConfig);
-        database = firebase.database();
-        
-        console.log("Firebase initialized successfully");
-        
-        // Check for admin mode from URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        isAdmin = urlParams.get('admin') === 'true';
-        
-        // Update UI mode indicator
-        updateModeIndicator();
-        
-        // Set up realtime listeners for all data
-        setupRealtimeListeners();
-        
-    } catch (error) {
-        console.error("Firebase initialization error:", error);
-        showError("Failed to connect to database. Please refresh the page.");
-    }
-}
-
-/**
- * Sets up Firebase realtime database listeners for syncing data
- * Listens for changes in timers, coupons, and logs
- */
-function setupRealtimeListeners() {
-    // Listen for timer data changes
-    database.ref('timers').on('value', (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            updateTimersFromFirebase(data);
-            updateAllTimerDisplays();
-        }
-    });
-    
-    // Listen for coupon data changes
-    database.ref('coupons').on('value', (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            coupons = Object.values(data);
-            renderCoupons();
-        } else {
-            coupons = [];
-            renderCoupons();
-        }
-    });
-    
-    // Listen for log data changes
-    database.ref('logs').on('value', (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            systemLogs = Object.values(data);
-        } else {
-            systemLogs = [];
-        }
-    });
-    
-    // Check if this is first run and initialize data if needed
-    checkAndInitializeData();
-}
-
-/**
- * Updates local timer state from Firebase data
- * @param {Object} firebaseData - Timer data from Firebase
- */
-function updateTimersFromFirebase(firebaseData) {
-    for (const timerId in timerConfig) {
-        if (firebaseData[timerId]) {
-            const fbTimer = firebaseData[timerId];
-            timerConfig[timerId].currentTime = fbTimer.currentTime || 0;
-            timerConfig[timerId].restartsToday = fbTimer.restartsToday || 0;
-            timerConfig[timerId].usedToday = fbTimer.usedToday || 0;
+// CORE LOGIC LOOP
+function updateTick() {
+    Object.keys(state.timers).forEach(key => {
+        const timer = state.timers[key];
+        if (timer.running) {
+            timer.elapsed++;
             
-            // Update weekly fun limit if provided
-            if (timerId === 'weeklyFun' && fbTimer.weeklyLimit !== undefined) {
-                timerConfig[timerId].weeklyLimit = fbTimer.weeklyLimit;
-                timerConfig[timerId].maxTime = fbTimer.weeklyLimit;
+            // Overflow Logic: If elapsed > limit, deduct from Global Bank
+            if (timer.elapsed > timer.limit) {
+                state.globalBank--;
             }
         }
+    });
+    saveState();
+    render();
+}
+
+// TIME FORWARDING FUNCTION
+function jumpTime(key) {
+    if (!isAdmin) return;
+    const input = document.querySelector(`#block-${key} .jump-input`);
+    const mins = parseInt(input.value) || 0;
+    const secondsToAdd = mins * 60;
+
+    const timer = state.timers[key];
+    const newElapsed = timer.elapsed + secondsToAdd;
+
+    // Logic: If jump goes over limit, calculate the overflow immediately
+    if (newElapsed > timer.limit) {
+        const overflow = newElapsed - Math.max(timer.limit, timer.elapsed);
+        state.globalBank -= overflow;
     }
     
-    // Update global timer from Firebase
-    if (firebaseData.global) {
-        timerConfig.global.currentTime = firebaseData.global.currentTime || 210;
+    timer.elapsed = newElapsed;
+    input.value = '';
+    render();
+}
+
+// UI RENDERING
+function render() {
+    // Render Global Bank
+    const bankMin = Math.floor(state.globalBank / 60);
+    const bankSec = state.globalBank % 60;
+    document.getElementById('bank-timer').innerText = `${bankMin}:${bankSec.toString().padStart(2, '0')}`;
+
+    // Render Individual Blocks
+    Object.keys(state.timers).forEach(key => {
+        const timer = state.timers[key];
+        const block = document.getElementById(`block-${key}`);
+        if (!block) return;
+
+        const display = block.querySelector('.timer-display');
+        const min = Math.floor(timer.elapsed / 60);
+        const sec = timer.elapsed % 60;
+        display.innerText = `${min}:${sec.toString().padStart(2, '0')}`;
+
+        // Update Ring (219.9 is the circumference for r=35)
+        const ring = document.getElementById(`ring-${key}`);
+        const progress = Math.min(timer.elapsed / timer.limit, 1);
+        ring.style.strokeDashoffset = 219.9 - (progress * 219.9);
+        
+        // Color shift if overflow
+        if (timer.elapsed > timer.limit) ring.style.stroke = "#ff4b2b";
+    });
+}
+
+function initUI() {
+    if (isAdmin) {
+        document.getElementById('admin-controls').classList.remove('hidden');
+        document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('hidden'));
     }
 }
 
-/**
- * Checks if Firebase has data and initializes if empty
- * Prevents overwriting existing data
- */
-function checkAndInitializeData()
+// PERSISTENCE
+function saveState() {
+    localStorage.setItem('liquid_glass_state', JSON.stringify(state));
+}
+
+function loadState() {
+    const saved = localStorage.getItem('liquid_glass_state');
+    if (saved) state = JSON.parse(saved);
+}
