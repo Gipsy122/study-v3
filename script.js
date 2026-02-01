@@ -1,163 +1,202 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, update, push, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+// Main Application Script for Study Discipline System
+// This file contains all Firebase integration, timer logic, and UI management
 
-const firebaseConfig = {
-    apiKey: "AIzaSyAnX310YufEPE5ODH0RHusbtaw9wNGGhdE",
-    authDomain: "study-system-29.firebaseapp.com",
-    databaseURL: "https://study-system-29-default-rtdb.firebaseio.com",
-    projectId: "study-system-29",
-    storageBucket: "study-system-29.firebasestorage.app",
-    messagingSenderId: "407118949554",
-    appId: "1:407118949554:web:17eeecc4c20db90da22dab"
-};
+// ============================================================================
+// GLOBAL VARIABLES AND INITIALIZATION
+// ============================================================================
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+// Firebase app and database reference
+let app;
+let database;
+let isAdmin = false;
 
-// Logic: Check URL for Admin
-const urlParams = new URLSearchParams(window.location.search);
-const isAdmin = urlParams.get('admin') === 'true';
-
-const DEFAULT_STATE = {
-    globalBreak: 210,
-    timers: {
-        bath: { name: 'Bath', current: 0, limit: 30, restarts: 0, maxRestarts: 1, active: false },
-        food: { name: 'Food', current: 15, limit: 15, restarts: 0, maxRestarts: 3, active: false },
-        washroom: { name: 'Washroom', current: 15, limit: 15, restarts: 0, maxRestarts: 2, active: false },
-        sleep: { name: 'Sleep', current: 420, limit: 420, restarts: 0, maxRestarts: 1, active: false },
-        studyBuffer: { name: 'Study Buffer', current: 20, limit: 20, restarts: 0, maxRestarts: 999, active: false }
+// Timer configuration - defines all timer properties and rules
+const timerConfig = {
+    global: {
+        name: "Global Break Timer",
+        icon: "fa-clock",
+        totalLimit: 210, // 3.5 hours in minutes
+        currentTime: 210,
+        color: "#6bc5ff"
+    },
+    bath: {
+        name: "Bath",
+        icon: "fa-bath",
+        defaultLimit: 30,
+        currentTime: 0,
+        maxTime: 30,
+        restartLimit: "Unlimited",
+        restartsToday: 0,
+        color: "#4dabf7",
+        usedToday: 0
+    },
+    food: {
+        name: "Food",
+        icon: "fa-utensils",
+        defaultLimit: 15,
+        currentTime: 0,
+        maxTime: 15,
+        restartLimit: 3,
+        restartsToday: 0,
+        color: "#ff922b",
+        usedToday: 0
+    },
+    washroom: {
+        name: "Washroom",
+        icon: "fa-toilet",
+        defaultLimit: 15,
+        currentTime: 0,
+        maxTime: 15,
+        restartLimit: 2,
+        restartsToday: 0,
+        color: "#40c057",
+        usedToday: 0
+    },
+    sleep: {
+        name: "Sleep",
+        icon: "fa-bed",
+        defaultLimit: 420, // 7 hours in minutes
+        currentTime: 0,
+        maxTime: 420,
+        restartLimit: 1,
+        restartsToday: 0,
+        color: "#748ffc",
+        usedToday: 0
+    },
+    studyBuffer: {
+        name: "Study Buffer",
+        icon: "fa-book",
+        defaultLimit: 20,
+        currentTime: 0,
+        maxTime: 20,
+        restartLimit: "Unlimited",
+        restartsToday: 0,
+        color: "#da77f2",
+        usedToday: 0
+    },
+    weeklyFun: {
+        name: "Weekly Fun",
+        icon: "fa-gamepad",
+        defaultLimit: 0, // Admin defined
+        currentTime: 0,
+        maxTime: 0,
+        restartLimit: 1,
+        restartsToday: 0,
+        color: "#ff6b6b",
+        usedToday: 0,
+        weeklyLimit: 0
     }
 };
 
-// --- INITIALIZATION ---
-// This checks if DB is empty and populates it so you don't get "undefined"
-get(ref(db, 'system/')).then((snapshot) => {
-    if (!snapshot.exists()) {
-        set(ref(db, 'system/'), DEFAULT_STATE);
+// Active timers tracking
+let activeTimers = {};
+let coupons = [];
+let systemLogs = [];
+let currentEditTimer = null;
+
+// DOM Elements cache for performance
+const domElements = {};
+
+// ============================================================================
+// FIREBASE INITIALIZATION AND DATA SYNC
+// ============================================================================
+
+/**
+ * Initializes Firebase app and sets up realtime database listeners
+ * This function must be called first to establish connection with Firebase
+ */
+function initializeFirebase() {
+    try {
+        // Initialize Firebase with provided configuration
+        app = firebase.initializeApp(firebaseConfig);
+        database = firebase.database();
+        
+        console.log("Firebase initialized successfully");
+        
+        // Check for admin mode from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        isAdmin = urlParams.get('admin') === 'true';
+        
+        // Update UI mode indicator
+        updateModeIndicator();
+        
+        // Set up realtime listeners for all data
+        setupRealtimeListeners();
+        
+    } catch (error) {
+        console.error("Firebase initialization error:", error);
+        showError("Failed to connect to database. Please refresh the page.");
     }
-});
-
-if (isAdmin) {
-    document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('hidden'));
-    document.getElementById('view-title').innerText = "Admin Management";
 }
 
-// --- CORE SYNC ---
-onValue(ref(db, 'system/'), (snapshot) => {
-    const data = snapshot.val();
-    if (!data) return;
-
-    renderTimers(data.timers);
-    renderCoupons(data.coupons || {});
-    renderLogs(data.logs || {});
-    updateGlobalTimer(data.globalBreak);
-});
-
-// --- RENDER FUNCTIONS ---
-function renderTimers(timers) {
-    const container = document.getElementById('dashboard');
-    if (!container) return;
-    container.innerHTML = '';
-
-    Object.keys(timers).forEach(key => {
-        const t = timers[key];
-        const card = document.createElement('div');
-        card.className = 'glass-card timer-block';
-        card.innerHTML = `
-            <h3>${t.name}</h3>
-            <div class="circle-timer">
-                <div class="timer-val">${formatTime(t.current)}</div>
-                <small>Limit: ${t.limit}m</small>
-            </div>
-            <div class="controls ${isAdmin ? '' : 'hidden'}">
-                <button id="btn-${key}">${t.active ? 'STOP' : 'START'}</button>
-                <input type="number" id="input-${key}" placeholder="Min to add">
-                <button id="update-${key}" class="secondary">Manual Update</button>
-            </div>
-            <div class="stats">
-                Restarts: ${t.restarts} / ${t.maxRestarts > 100 ? '∞' : t.maxRestarts}
-            </div>
-        `;
-        container.appendChild(card);
-
-        // Attach events manually to ensure 'this' context and scoping works
-        if (isAdmin) {
-            document.getElementById(`btn-${key}`).onclick = () => toggleTimer(key, t.active);
-            document.getElementById(`update-${key}`).onclick = () => adjustTime(key, t.current);
-        }
-    });
-}
-
-// --- ACTIONS ---
-window.toggleTimer = (id, currentState) => {
-    update(ref(db, `system/timers/${id}`), { active: !currentState });
-};
-
-window.adjustTime = (id, currentVal) => {
-    const input = document.getElementById(`input-${id}`);
-    const addedMins = parseInt(input.value);
-    if (isNaN(addedMins)) return;
-
-    update(ref(db, `system/timers/${id}`), { 
-        current: currentVal + addedMins 
-    });
-    input.value = '';
-};
-
-// --- TICKER LOGIC (1 Minute) ---
-// Only runs if you are on the admin page to prevent multiple clients double-ticking
-if (isAdmin) {
-    setInterval(async () => {
-        const snapshot = await get(ref(db, 'system/'));
+/**
+ * Sets up Firebase realtime database listeners for syncing data
+ * Listens for changes in timers, coupons, and logs
+ */
+function setupRealtimeListeners() {
+    // Listen for timer data changes
+    database.ref('timers').on('value', (snapshot) => {
         const data = snapshot.val();
-        if (!data) return;
+        if (data) {
+            updateTimersFromFirebase(data);
+            updateAllTimerDisplays();
+        }
+    });
+    
+    // Listen for coupon data changes
+    database.ref('coupons').on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            coupons = Object.values(data);
+            renderCoupons();
+        } else {
+            coupons = [];
+            renderCoupons();
+        }
+    });
+    
+    // Listen for log data changes
+    database.ref('logs').on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            systemLogs = Object.values(data);
+        } else {
+            systemLogs = [];
+        }
+    });
+    
+    // Check if this is first run and initialize data if needed
+    checkAndInitializeData();
+}
 
-        let globalDeduction = 0;
-        const updates = {};
-
-        Object.keys(data.timers).forEach(key => {
-            const t = data.timers[key];
-            if (t.active) {
-                let newTime = t.current - 1;
-                // Overflow logic: If timer hits 0, start eating from Global Break Pool
-                if (newTime < 0) {
-                    globalDeduction += 1;
-                }
-                updates[`system/timers/${key}/current`] = newTime;
+/**
+ * Updates local timer state from Firebase data
+ * @param {Object} firebaseData - Timer data from Firebase
+ */
+function updateTimersFromFirebase(firebaseData) {
+    for (const timerId in timerConfig) {
+        if (firebaseData[timerId]) {
+            const fbTimer = firebaseData[timerId];
+            timerConfig[timerId].currentTime = fbTimer.currentTime || 0;
+            timerConfig[timerId].restartsToday = fbTimer.restartsToday || 0;
+            timerConfig[timerId].usedToday = fbTimer.usedToday || 0;
+            
+            // Update weekly fun limit if provided
+            if (timerId === 'weeklyFun' && fbTimer.weeklyLimit !== undefined) {
+                timerConfig[timerId].weeklyLimit = fbTimer.weeklyLimit;
+                timerConfig[timerId].maxTime = fbTimer.weeklyLimit;
             }
-        });
-
-        if (globalDeduction > 0) {
-            updates[`system/globalBreak`] = data.globalBreak - globalDeduction;
         }
-
-        if (Object.keys(updates).length > 0) {
-            update(ref(db), updates);
-        }
-    }, 60000); 
-}
-
-// --- UTILS ---
-function formatTime(minutes) {
-    if (minutes === undefined || isNaN(minutes)) return "00:00";
-    const absMin = Math.abs(minutes);
-    const h = Math.floor(absMin / 60);
-    const m = absMin % 60;
-    const sign = minutes < 0 ? "-" : "";
-    return `${sign}${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-}
-
-function updateGlobalTimer(val) {
-    const el = document.getElementById('global-timer');
-    if (el) el.innerText = formatTime(val);
-}
-
-// Global UI placeholders for coupons/logs
-function renderCoupons(c) { /* simplified for now */ }
-function renderLogs(l) { /* simplified for now */ }
-
-document.getElementById('restart-day').onclick = () => {
-    if(confirm("Reset everything for a new day?")) {
-        set(ref(db, 'system/'), DEFAULT_STATE);
     }
-};
+    
+    // Update global timer from Firebase
+    if (firebaseData.global) {
+        timerConfig.global.currentTime = firebaseData.global.currentTime || 210;
+    }
+}
+
+/**
+ * Checks if Firebase has data and initializes if empty
+ * Prevents overwriting existing data
+ */
+function checkAndInitializeData()
